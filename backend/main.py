@@ -100,6 +100,30 @@ def create_data_from_pdf(file_bytes):
 def save_data(data, pdf_id):
     pdf_db_ref.child(pdf_id).set(data)
 
+async def detect_text_from_audio(audio):
+    audio_bytes = await audio.read()
+    temp_audio_path = f"temp_{uuid.uuid4().hex}_{audio.filename}"
+    with open(temp_audio_path, "wb") as f:
+        f.write(audio_bytes)
+
+    if audio.filename.lower().endswith(".ogg"):
+        wav_temp_audio_path = temp_audio_path.replace(".ogg", ".wav")
+        ogg_audio = AudioSegment.from_file(temp_audio_path, format="ogg")
+        ogg_audio.export(wav_temp_audio_path, format="wav")
+        transcribe_path = wav_temp_audio_path
+    else:
+        transcribe_path = temp_audio_path
+
+    # Transcribe audio
+    model = whisper.load_model("small", device="cpu", in_memory=False)
+    result = model.transcribe(transcribe_path, word_timestamps=True, fp16=False)
+
+    # Remove temporary audio file
+    os.remove(temp_audio_path)
+    if audio.filename.lower().endswith(".ogg"):
+        os.remove(wav_temp_audio_path)
+
+    return result
 
 if __name__ == "__main__":
     import uvicorn
