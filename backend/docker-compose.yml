@@ -1,0 +1,14 @@
+version: "3.8"
+
+services:
+  fastapi-app:
+    build: .
+    container_name: fastapi-service
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_URL=https://pdf-audio-25e17-default-rtdb.firebaseio.com
+      - FIREBASE_CRED_PATH=/app/pdf-audio-25e17-firebase-adminsdk-fbsvc-6211a769ed.json
+    restart: unless-stopped
