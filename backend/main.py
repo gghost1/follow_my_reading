@@ -97,8 +97,12 @@ def create_data_from_pdf(file_bytes):
         "extracted_text": extracted_text
     }
 
-def save_data(data, pdf_id):
+def save_pdf_data(data, pdf_id):
     pdf_db_ref.child(pdf_id).set(data)
+
+def save_audio_data(pdf_id, audio_recording):
+    audio_id = str(uuid.uuid4())
+    pdf_db_ref.child(pdf_id).child("audio_recordings").child(audio_id).set(audio_recording)
 
 async def detect_text_from_audio(audio):
     audio_bytes = await audio.read()
