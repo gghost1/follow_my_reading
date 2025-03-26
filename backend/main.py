@@ -129,6 +129,54 @@ async def detect_text_from_audio(audio):
 
     return result
 
+@app.post("/upload_pdf")
+async def upload_pdf(
+        file: Optional[UploadFile] = File(None),
+        text: Optional[str] = Form(None),
+        user_id: str = Form(...)
+):
+    if not file and not text:
+        raise HTTPException(status_code=400, detail="Не передан ни файл, ни текст.")
+
+    pdf_id = str(uuid.uuid4())
+
+    if text:
+        data_from = create_data_from_text(text)
+    else:
+        file_bytes = await file.read()
+        data_from = create_data_from_pdf(file_bytes)
+
+    pdf_base64 = encode_file_to_base64(data_from["pdf_bytes"])
+
+    data = {
+        "pdf_file_base64": pdf_base64,
+        "text": data_from["extracted_text"],
+        "errors": data_from["errors"],
+        "user_id": user_id,
+        "audio_recordings": {}
+    }
+
+    save_pdf_data(data, pdf_id)
+    return {"pdf_id": pdf_id, "errors": data_from["errors"]}
+
+@app.get("/pdfs")
+def list_pdfs(page: int = 1, page_size: int = 10, user_id: Optional[str] = None, only_mine: bool = False):
+    all_pdfs = pdf_db_ref.get() or {}
+    items = []
+    for key, d in all_pdfs.items():
+        d["pdf_id"] = key
+        if only_mine and user_id:
+            if d.get("user_id") == user_id:
+                items.append(d)
+        else:
+            items.append(d)
+    total = len(items)
+    start = (page - 1) * page_size
+    end = start + page_size
+    paged_items = items[start:end]
+    return {"page": page, "page_size": page_size, "total": total, "items": paged_items}
+
+
 if __name__ == "__main__":
     import uvicorn
 
