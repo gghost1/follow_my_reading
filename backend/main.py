@@ -104,8 +104,7 @@ def save_audio_data(pdf_id, audio_recording):
     audio_id = str(uuid.uuid4())
     pdf_db_ref.child(pdf_id).child("audio_recordings").child(audio_id).set(audio_recording)
 
-async def detect_text_from_audio(audio):
-    audio_bytes = await audio.read()
+async def detect_text_from_audio(audio_bytes, audio):
     temp_audio_path = f"temp_{uuid.uuid4().hex}_{audio.filename}"
     with open(temp_audio_path, "wb") as f:
         f.write(audio_bytes)
@@ -175,6 +174,58 @@ def list_pdfs(page: int = 1, page_size: int = 10, user_id: Optional[str] = None,
     end = start + page_size
     paged_items = items[start:end]
     return {"page": page, "page_size": page_size, "total": total, "items": paged_items}
+
+@app.post("/upload_audio/{pdf_id}")
+async def upload_audio(
+        pdf_id: str,
+        audio: UploadFile = File(...),
+        uploader_id: str = Form(...)
+):
+    pdf_snapshot = pdf_db_ref.child(pdf_id).get()
+    if not pdf_snapshot:
+        raise HTTPException(status_code=404, detail="PDF не найден.")
+
+    audio_bytes = await audio.read()
+    result = await detect_text_from_audio(audio_bytes, audio)
+
+    chunks = []
+    for segment in result["segments"]:
+        for word in segment["words"]:
+            chunks.append({
+                "text": word["word"],
+                "start": word["start"],
+                "end": word["end"]
+            })
+
+    recognized_text = result["text"]
+    reference_text = pdf_snapshot.get("text", "")
+
+    corrected_text = recognized_text #correct_text(recognized_text, reference_text)
+    semantic_ok = check_semantic(corrected_text, reference_text)
+
+    audio_base64 = encode_file_to_base64(audio_bytes)
+
+    audio_recording = {
+        "audio_file_base64": audio_base64,
+        "uploader_id": uploader_id,
+        "recognized_text": recognized_text,
+        "corrected_text": corrected_text,
+        "chunks": chunks,
+        "semantic_ok": semantic_ok
+    }
+
+    audio_id = str(uuid.uuid4())
+    pdf_db_ref.child(pdf_id).child("audio_recordings").child(audio_id).set(audio_recording)
+
+    return {"pdf_id": pdf_id, "audio_recording": audio_recording}
+
+@app.get("/pdf_data/{pdf_id}")
+def get_pdf_data(pdf_id: str):
+    data = pdf_db_ref.child(pdf_id).get()
+    if not data:
+        raise HTTPException(status_code=404, detail="PDF не найден.")
+    data["pdf_id"] = pdf_id
+    return data
 
 
 if __name__ == "__main__":
