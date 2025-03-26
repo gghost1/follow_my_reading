@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+PyPDF2
+reportlab
+firebase-admin
+pydub
+python-multipart
+ffmpeg
