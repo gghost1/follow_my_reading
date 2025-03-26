@@ -97,6 +97,9 @@ def create_data_from_pdf(file_bytes):
         "extracted_text": extracted_text
     }
 
+def save_data(data, pdf_id):
+    pdf_db_ref.child(pdf_id).set(data)
+
 
 if __name__ == "__main__":
     import uvicorn
