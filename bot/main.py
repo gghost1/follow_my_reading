@@ -146,7 +146,62 @@ async def handle_pdf_selection(update: Update, context: ContextTypes.DEFAULT_TYP
         "Что хотите сделать с этим текстом?",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+    
+async def handle_record_audio_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    pdf_id = query.data.replace("record_", "")
+    context.user_data["pdf_id"] = pdf_id
+    context.user_data["uploader_id"] = str(query.from_user.id)
 
+    await query.message.reply_text("🎙 Пришлите озвучку в виде голосового сообщения.")
+    return UPLOAD_AUDIO
+
+
+
+# --- Загрузка аудио ---
+async def handle_audio_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    pdf_id = context.user_data.get("pdf_id")
+    uploader_id = context.user_data.get("uploader_id")
+
+    if update.message.voice or update.message.audio:
+        file = await update.message.voice.get_file() if update.message.voice else await update.message.audio.get_file()
+        file_bytes = await file.download_as_bytearray()
+        filename = "voice.ogg" if update.message.voice else "audio.mp3"
+
+        async with aiohttp.ClientSession() as session:
+            data = aiohttp.FormData()
+            data.add_field("audio", file_bytes, filename=filename, content_type="audio/ogg")
+            data.add_field("uploader_id", uploader_id)
+
+            async with session.post(f"{API_BASE}/upload_audio/{pdf_id}", data=data) as resp:
+                if resp.status != 200:
+                    print(resp)
+                    await update.message.reply_text("❌ Ошибка при отправке аудио на сервер.")
+                    return ConversationHandler.END
+
+                result = await resp.json()
+
+        await update.message.reply_text("✅ Аудио загружено и проанализировано!", reply_markup=main_keyboard)
+        await update.message.reply_text(
+            f'▶️ <a href="{MINI_APP}?pdf_id={pdf_id}">{MINI_APP}?pdf_id={pdf_id}</a>',
+            parse_mode="HTML"
+        )
+        return ConversationHandler.END
+
+    else:
+        await update.message.reply_text("Пожалуйста, отправьте голосовое или аудиосообщение.")
+        return UPLOAD_AUDIO
+
+
+# --- Страницы (пагинация) ---
+async def handle_page_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    _, page_str, only_mine_str = query.data.split("_")
+    page = int(page_str)
+    only_mine = only_mine_str == "True"
+    return await list_pdfs(update, context, only_mine=only_mine, page=page)
 
 # --- Запуск ---
 def main():
@@ -155,7 +210,7 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[
             MessageHandler(filters.TEXT, handle_main_menu),
-            CallbackQueryHandler(handle_record_audio_request, pattern="^record_"),  
+            CallbackQueryHandler(handle_record_audio_request, pattern="^record_"),  # ✅ добавляем это!
         ],
         states={
             UPLOAD_PDF: [MessageHandler(filters.TEXT | filters.Document.PDF, handle_pdf_upload)],
