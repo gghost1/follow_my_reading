@@ -54,6 +54,100 @@ async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Выбери действие с клавиатуры ⬇️", reply_markup=main_keyboard)
 
+# --- Загрузка PDF / Текста ---
+async def handle_pdf_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = context.user_data.get("user_id", str(update.effective_user.id))
+
+    if update.message.document:
+        file = await update.message.document.get_file()
+        file_bytes = await file.download_as_bytearray()
+        filename = update.message.document.file_name
+
+        async with aiohttp.ClientSession() as session:
+            data = aiohttp.FormData()
+            data.add_field("file", file_bytes, filename=filename, content_type='application/pdf')
+            data.add_field("user_id", user_id)
+
+            async with session.post(f"{API_BASE}/upload_pdf", data=data) as resp:
+                result = await resp.json()
+
+        await update.message.reply_text(f"✅ PDF загружен! ID: {result['pdf_id']}", reply_markup=main_keyboard)
+        return ConversationHandler.END
+
+    elif update.message.text:
+        async with aiohttp.ClientSession() as session:
+            data = aiohttp.FormData()
+            data.add_field("text", update.message.text)
+            data.add_field("user_id", user_id)
+
+            async with session.post(f"{API_BASE}/upload_pdf", data=data) as resp:
+                result = await resp.json()
+
+        await update.message.reply_text(f"✅ Текст сохранён как PDF! ID: {result['pdf_id']}", reply_markup=main_keyboard)
+        return ConversationHandler.END
+
+    else:
+        await update.message.reply_text("Пожалуйста, пришли PDF или текст.")
+        return UPLOAD_PDF
+
+# --- Список PDF ---
+async def list_pdfs(update_or_query, context, only_mine=False, page=1):
+    user_id = str(update_or_query.effective_user.id)
+    is_callback = hasattr(update_or_query, 'callback_query')
+    if hasattr(update_or_query, 'callback_query') and update_or_query.callback_query:
+        message = update_or_query.callback_query.message
+    else:
+        message = update_or_query.message
+
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{API_BASE}/pdfs", params={
+            "page": page,
+            "only_mine": str(only_mine).lower(),
+            "user_id": user_id
+        }) as resp:
+            data = await resp.json()
+
+    buttons = []
+    for item in data["items"]:
+        buttons.append([
+            InlineKeyboardButton(item["text"][:30], callback_data=f"pdf_{item['pdf_id']}")
+        ])
+
+    nav_buttons = []
+    if page > 1:
+        nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"page_{page-1}_{only_mine}"))
+    if page * data["page_size"] < data["total"]:
+        nav_buttons.append(InlineKeyboardButton("➡️ Далее", callback_data=f"page_{page+1}_{only_mine}"))
+    if nav_buttons:
+        buttons.append(nav_buttons)
+
+    await message.reply_text(
+        "📄 Найденные тексты:",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+    return ConversationHandler.END
+
+# --- Выбор PDF ---
+async def handle_pdf_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    pdf_id = query.data.replace("pdf_", "")
+    context.user_data["pdf_id"] = pdf_id
+    context.user_data["uploader_id"] = str(query.from_user.id)
+
+    keyboard = [
+        [InlineKeyboardButton("🎙 Озвучить", callback_data=f"record_{pdf_id}")],
+        [InlineKeyboardButton("▶️ Послушать озвучки", callback_data=f"listen_{pdf_id}")],
+        [InlineKeyboardButton("📄 Подробнее", callback_data=f"info_{pdf_id}")]
+    ]
+
+    await query.message.reply_text(
+        "Что хотите сделать с этим текстом?",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
 # --- Запуск ---
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
