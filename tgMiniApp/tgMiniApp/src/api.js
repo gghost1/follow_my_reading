@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_BACKEND_URL;
 
 export const fetchPdfData = async (pdfId) => {
     const res = await axios.get(`${API_BASE}/pdf_data/${pdfId}`);
@@ -12,8 +12,7 @@ export const fetchPdfsList = async (pageNum, page_size = 5) => {
         params: {
             page: pageNum,
             page_size,
-          }
-        }
-    );
+        },
+    });
     return res.data;
 };
