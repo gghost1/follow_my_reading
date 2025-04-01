@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react';
 
-// Функция для токенизации текста с сохранением пробелов
 const tokenize = (text) => {
     const tokens = [];
     const regex = /(\S+)(\s*)/g;
@@ -16,16 +15,13 @@ const tokenize = (text) => {
 };
 
 export default function ChunkHighlighter({ text, currentTime, chunks }) {
-    // Токенизируем исходный текст
     const tokens = useMemo(() => tokenize(text), [text]);
 
-    // Находим максимальное значение end среди всех чанков — это приблизительно конец аудио
     const maxEnd = useMemo(() => {
         if (!chunks || chunks.length === 0) return 0;
         return Math.max(...chunks.map((c) => c.end));
     }, [chunks]);
 
-    // Массив для сопоставления каждого токена с временным интервалом чанка, если он найден
     const tokenChunks = useMemo(() => {
         let pointer = 0;
         const mapping = new Array(tokens.length).fill(null);
@@ -37,7 +33,6 @@ export default function ChunkHighlighter({ text, currentTime, chunks }) {
                 .split(/\s+/)
                 .map((w) => w.toLowerCase().replace(/[.,!?;:()«»"“”]/g, ''));
 
-            // Ищем последовательное совпадение токенов начиная с pointer
             for (let i = pointer; i <= tokens.length - chunkTokens.length; i++) {
                 let match = true;
                 for (let j = 0; j < chunkTokens.length; j++) {
@@ -47,7 +42,6 @@ export default function ChunkHighlighter({ text, currentTime, chunks }) {
                     }
                 }
                 if (match) {
-                    // Присваиваем найденным токенам интервал чанка
                     for (let j = 0; j < chunkTokens.length; j++) {
                         mapping[i + j] = { start: chunk.start, end: chunk.end };
                     }
@@ -59,17 +53,14 @@ export default function ChunkHighlighter({ text, currentTime, chunks }) {
         return mapping;
     }, [tokens, chunks]);
 
-    // Группируем токены в сегменты
     const segments = useMemo(() => {
         const segs = [];
         let i = 0;
         while (i < tokens.length) {
-            // Если токен сопоставлен — группируем подряд идущие токены с одинаковым интервалом
             if (tokenChunks[i] !== null) {
                 const mapping = tokenChunks[i];
                 let segText = tokens[i].word + tokens[i].space;
                 let j = i + 1;
-                // Собираем подряд идущие токены с таким же интервалом
                 while (
                     j < tokens.length &&
                     tokenChunks[j] !== null &&
@@ -87,9 +78,7 @@ export default function ChunkHighlighter({ text, currentTime, chunks }) {
                 });
                 i = j;
             } else {
-                // Несопоставленные токены
                 let segText = tokens[i].word + tokens[i].space;
-                // Определяем начало: ищем ближайший сопоставленный слева
                 let prev = 0;
                 let k = i - 1;
                 while (k >= 0 && tokenChunks[k] === null) k--;
@@ -103,7 +92,6 @@ export default function ChunkHighlighter({ text, currentTime, chunks }) {
                     j++;
                 }
 
-                // Определяем конец: ищем ближайший сопоставленный справа
                 let next = maxEnd;
                 if (j < tokens.length && tokenChunks[j] !== null) {
                     next = tokenChunks[j].start;
@@ -122,12 +110,11 @@ export default function ChunkHighlighter({ text, currentTime, chunks }) {
     }, [tokens, tokenChunks, maxEnd]);
 
     return (
-        <div style={{ lineHeight: '1.6em', marginTop: '10px' }}>
+        <div style={{ lineHeight: '1.6em', marginTop: '10px' }} className='chunks'>
             {segments.map((seg, idx) => {
                 let backgroundColor = 'transparent';
-                // Подсветка только в интервале сегмента
                 if (currentTime >= seg.start && currentTime <= seg.end) {
-                    backgroundColor = seg.isMatched ? 'yellow' : 'red';
+                    backgroundColor = seg.isMatched ? 'rgba(255, 255, 0, 0.585)' : 'red';
                 }
                 return (
                     <>
