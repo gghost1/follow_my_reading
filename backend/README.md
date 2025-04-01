@@ -22,7 +22,7 @@ This service processes PDF and audio files. It allows:
    git clone https://github.com/gghost1/follow_my_reading.git
    cd follow_my_reading
    ```
-2. **Place the Firebase credentials file in the project root.** Ensure the file name matches the one specified in [docker-compose.yml](docker-compose.yml).
+2. **Place the Firebase credentials file in the project root.** Ensure the file name and db url matches your in [main.py](main.py).[line 30]
 3. **Build and run the Docker containers:**
    ```bash
    docker-compose up --build -d
