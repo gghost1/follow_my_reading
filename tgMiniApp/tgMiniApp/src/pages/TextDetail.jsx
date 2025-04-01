@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 
 import { fetchPdfData } from '../api';
 import AudioPlayer from '../components/AudioPlayer';
+import Loading from '../components/Loading';
 
 export default function TextDetail() {
     const { id: pdfId } = useParams();
@@ -13,16 +14,16 @@ export default function TextDetail() {
         fetchPdfData(pdfId).then(setData);
     }, [pdfId]);
 
-    if (!data) return <p>Загрузка...</p>;
+    if (!data) return <Loading />;
 
     const recordings = Object.values(data.audio_recordings || {});
 
     return (
         <div style={{ padding: '20px' }}>
-            <h2>📄 Текст</h2>
-            <p>{data.text}</p>
+            <h2>📄   Оригинальный текст</h2>
+            <p className='origText'>{data.text}</p>
 
-            <h3>🎧 Озвучки</h3>
+            <h3 id='audios__title'>{`🎧 Озвучки`}</h3>
             {recordings.length === 0 ? (
                 <p>Нет доступных аудио.</p>
             ) : (

@@ -2,7 +2,7 @@ import os
 import aiohttp
 from telegram import (
     Update, ReplyKeyboardMarkup, InlineKeyboardMarkup,
-    InlineKeyboardButton
+    InlineKeyboardButton, WebAppInfo, KeyboardButton
 )
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
@@ -22,7 +22,7 @@ UPLOAD_PDF, UPLOAD_AUDIO = range(2)
 # --- Постоянная клавиатура ---
 main_keyboard = ReplyKeyboardMarkup(
     [
-        ["📤 Загрузить PDF"],
+        ["📤 Загрузить PDF", "📚 Открыть приложение"],
         ["📚 Посмотреть доступные тексты", "📁 Посмотреть мои тексты"]
     ],
     resize_keyboard=True
@@ -50,6 +50,24 @@ async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif text == "📁 Посмотреть мои тексты":
         return await list_pdfs(update, context, only_mine=True)
+    
+    elif text == "📚 Открыть приложение":
+        pdf_id = "abc123"  # Подставь свой PDF ID здесь
+        web_app_url = MINI_APP
+
+        keyboard = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="Открыть приложение 📚", web_app=WebAppInfo(url=web_app_url))]
+            ],
+            resize_keyboard=True,
+            one_time_keyboard=True
+        )
+
+        await update.message.reply_text(
+            "Нажмите кнопку ниже, чтобы открыть Mini App:",
+            reply_markup=keyboard
+        )
+        
 
     else:
         await update.message.reply_text("Выбери действие с клавиатуры ⬇️", reply_markup=main_keyboard)
@@ -138,8 +156,8 @@ async def handle_pdf_selection(update: Update, context: ContextTypes.DEFAULT_TYP
 
     keyboard = [
         [InlineKeyboardButton("🎙 Озвучить", callback_data=f"record_{pdf_id}")],
-        [InlineKeyboardButton("▶️ Послушать озвучки", callback_data=f"listen_{pdf_id}")],
-        [InlineKeyboardButton("📄 Подробнее", callback_data=f"info_{pdf_id}")]
+        # [InlineKeyboardButton("▶️ Послушать озвучки", callback_data=f"listen_{pdf_id}")],
+        [InlineKeyboardButton("▶️ Послушать озвучки", web_app=WebAppInfo(url=f"{MINI_APP}/{pdf_id}"))],
     ]
 
     await query.message.reply_text(
@@ -181,12 +199,13 @@ async def handle_audio_upload(update: Update, context: ContextTypes.DEFAULT_TYPE
                     return ConversationHandler.END
 
                 result = await resp.json()
+        
+        keyboard = [
+            [InlineKeyboardButton("▶️ Послушать эту озвучку", web_app=WebAppInfo(url=f"{MINI_APP}/{pdf_id}"))],
+        ]
 
-        await update.message.reply_text("✅ Аудио загружено и проанализировано!", reply_markup=main_keyboard)
-        await update.message.reply_text(
-            f'▶️ <a href="{MINI_APP}?pdf_id={pdf_id}">{MINI_APP}?pdf_id={pdf_id}</a>',
-            parse_mode="HTML"
-        )
+        await update.message.reply_text("✅ Аудио загружено и проанализировано!", reply_markup=InlineKeyboardMarkup(keyboard))
+        
         return ConversationHandler.END
 
     else:
