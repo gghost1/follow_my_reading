@@ -1,10 +1,11 @@
 import os
+import time
 import uuid
 import base64
 import logging
 from io import BytesIO
 from typing import Optional, List, Dict, Any
-
+import numpy as np
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import PyPDF2
@@ -13,10 +14,16 @@ import whisper
 from pydub import AudioSegment
 import firebase_admin
 from firebase_admin import credentials, db
+import torch
+import torchaudio
+from transformers import AutoProcessor, AutoModelForSpeechSeq2Seq
 
 # Initialize logger
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+# AudioSegment.converter = r"C:\Users\zkauk\Downloads\ffmpeg-7.1.1-essentials_build\ffmpeg-7.1.1-essentials_build\bin\ffmpeg.exe"
+# AudioSegment.ffprobe = r"C:\Users\zkauk\Downloads\ffmpeg-7.1.1-essentials_build\ffmpeg-7.1.1-essentials_build\bin\ffprobe.exe"
+
 
 class FirebaseService:
     """Service for Firebase Realtime Database operations"""
@@ -28,7 +35,7 @@ class FirebaseService:
         """Initialize Firebase app with credentials"""
         try:
             FIREBASE_CRED_PATH = "pdf-audio-creds.json"
-            DATABASE_URL = "https://pdf-audio-25e17-default-rtdb.firebaseio.com"
+            DATABASE_URL = "https://follow-my-reading-31353-default-rtdb.firebaseio.com"
 
             if not firebase_admin._apps:
                 cred = credentials.Certificate(FIREBASE_CRED_PATH)
@@ -116,13 +123,19 @@ class FileService:
         return base64.b64encode(file_bytes).decode("utf-8")
 
 class AudioService:
-    """Service for audio processing operations"""
 
     def __init__(self):
-        self.model = whisper.load_model("small", device="cpu", in_memory=False)
+        try:
+            # Загрузка процессора и модели Tarteel
+            self.processor = AutoProcessor.from_pretrained("tarteel-ai/whisper-base-ar-quran")
+            self.model = AutoModelForSpeechSeq2Seq.from_pretrained("tarteel-ai/whisper-base-ar-quran")
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            self.model.to(self.device)
+        except Exception as e:
+            logger.error(f"Не удалось загрузить модель Tarteel: {str(e)}")
+            raise HTTPException(status_code=500, detail="Ошибка загрузки модели Tarteel")
 
     async def transcribe_audio(self, audio_bytes: bytes, filename: str) -> Dict:
-        """Transcribe audio using Whisper model"""
         temp_audio_path = None
         wav_temp_audio_path = None
 
@@ -131,15 +144,36 @@ class AudioService:
             with open(temp_audio_path, "wb") as f:
                 f.write(audio_bytes)
 
-            # Convert OGG to WAV if needed
-            if filename.lower().endswith(".ogg"):
-                wav_temp_audio_path = temp_audio_path.replace(".ogg", ".wav")
-                self._convert_ogg_to_wav(temp_audio_path, wav_temp_audio_path)
-                transcribe_path = wav_temp_audio_path
-            else:
-                transcribe_path = temp_audio_path
+            time.sleep(1)
 
-            return self.model.transcribe(transcribe_path, word_timestamps=True, fp16=False)
+            transcribe_path = temp_audio_path
+
+            waveform, sample_rate = self.load_audio_with_pydub(transcribe_path)
+
+
+            target_rate = 16000
+            if sample_rate != target_rate:
+                resample_transform = torchaudio.transforms.Resample(sample_rate, target_rate)
+                waveform = resample_transform(waveform)
+                sample_rate = target_rate
+
+
+            waveform_np = waveform.numpy()
+
+
+            input_features = self.processor(waveform_np, sampling_rate=sample_rate, return_tensors="pt").input_features
+            input_features = input_features.to(self.device)
+
+
+            predicted_ids = self.model.generate(input_features)
+            predicted_ids = predicted_ids.to("cpu")
+            transcription = self.processor.batch_decode(predicted_ids, skip_special_tokens=True)
+
+            result = {
+                "text": transcription[0],
+                "segments": []
+            }
+            return result
         except Exception as e:
             logger.error(f"Audio processing failed: {str(e)}")
             raise HTTPException(status_code=500, detail="Audio processing error")
@@ -147,21 +181,31 @@ class AudioService:
             self._cleanup_temp_files(temp_audio_path, wav_temp_audio_path)
 
     @staticmethod
-    def _convert_ogg_to_wav(input_path: str, output_path: str) -> None:
-        """Convert OGG audio to WAV format"""
+    def _convert_to_wav(input_path: str, output_path: str) -> None:
         try:
-            audio = AudioSegment.from_file(input_path, format="ogg")
-            audio.export(output_path, format="wav")
+            audio = AudioSegment.from_file(input_path)
         except Exception as e:
-            logger.error(f"Audio conversion failed: {str(e)}")
-            raise HTTPException(status_code=400, detail="Unsupported audio format")
+            logger.error(f"Audio conversion failed (autodetect) : {e}")
+            raise HTTPException(status_code=400, detail="Unsupported or corrupted audio format")
 
+        audio.export(output_path, format="wav")
+
+    @staticmethod
+    def load_audio_with_pydub(input_path: str):
+        audio = AudioSegment.from_file(input_path)
+        samples = np.array(audio.get_array_of_samples())
+        waveform = torch.from_numpy(samples.astype(np.float32))
+        if audio.channels > 1:
+            waveform = waveform.view(-1, audio.channels).mean(dim=1, keepdim=True)
+        sample_rate = audio.frame_rate
+        return waveform, sample_rate
     @staticmethod
     def _cleanup_temp_files(*file_paths) -> None:
         """Cleanup temporary files"""
         for path in file_paths:
             if path and os.path.exists(path):
                 try:
+                    time.sleep(1)
                     os.remove(path)
                 except Exception as e:
                     logger.warning(f"Failed to delete temp file {path}: {str(e)}")
@@ -187,6 +231,8 @@ firebase_service = FirebaseService()
 file_service = FileService()
 audio_service = AudioService()
 validation_service = ValidationService()
+
+
 
 # FastAPI app setup
 app = FastAPI()
@@ -288,6 +334,7 @@ async def upload_audio(
 
         # Process audio
         audio_bytes = await audio.read()
+        print("Длина загруженного аудио:", len(audio_bytes))
         transcription = await audio_service.transcribe_audio(audio_bytes, audio.filename)
 
         # Prepare chunks
